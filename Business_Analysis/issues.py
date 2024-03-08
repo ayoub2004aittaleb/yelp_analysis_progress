@@ -15,9 +15,9 @@ z.show(result)
 
 # 2) Finding the top 10 cities with the most merchants in US
 rslt = df.groupBy('city') \
-                      .agg(count('city').alias('merchant_count')) \
-                      .orderBy(col('merchant_count').desc()) \
-                      .limit(10)
+    .agg(count('city').alias('merchant_count')) \
+    .orderBy(col('merchant_count').desc()) \
+    .limit(10)
 
 
 z.show(rslt)
