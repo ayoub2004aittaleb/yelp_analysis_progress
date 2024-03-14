@@ -60,37 +60,6 @@ hourly_checkin_frequency.show(24)  # Showing all 24 hours
 
 #--------------------------------------------------------------------------
 
-from pyspark.sql.functions import hour
-
-# Create a SparkSession
-spark = SparkSession.builder \
-    .appName("HourlyCheckinFrequency") \
-    .master('local') \
-    .getOrCreate()
-
-# Define the schema
-fire_schema = StructType([
-    StructField('business_id', StringType(), True),
-    StructField('date', TimestampType(), True)
-])
-
-# Read JSON data with the defined schema
-df = spark.read.json('data/yelp_academic_dataset_checkin.json', schema=fire_schema)
-
-# Filter out null values
-df = df.filter(df['business_id'].isNotNull() & df['date'].isNotNull())
-
-# Extract the hour from the 'date' column
-df = df.withColumn("hour", hour(df["date"]))
-
-# Group the data by hour and count the number of check-ins for each hour
-hourly_checkin_frequency = df.groupBy("hour").count().orderBy("hour")
-
-# Show the result
-hourly_checkin_frequency.show(24)  # Showing all 24 hours
-
-#----------------------------------------------------------------
-
 # Create a SparkSession
 spark = SparkSession.builder \
     .appName("MostFrequentCheckinBusinesses") \
