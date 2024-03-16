@@ -80,3 +80,34 @@ business_checkin_frequency = df_exploded.groupBy("business_id").count().orderBy(
 
 # Show the result
 business_checkin_frequency.show()
+
+
+# Create a SparkSession
+spark = SparkSession.builder \
+    .appName("MerchantCheckinRanking") \
+    .master('local') \
+    .getOrCreate()
+
+# Read JSON data
+df = spark.read.json('data/yelp_academic_dataset_checkin.json')
+
+# Filter out null values
+df = df.filter(df['business_id'].isNotNull() & df['date'].isNotNull())
+
+# Split the date string into an array of dates, then explode the array into separate rows
+df_exploded = df.withColumn("date", explode(split(df["date"], ", ")))
+
+# Group by business_id and count the number of check-ins
+business_checkin_frequency = df_exploded.groupBy("business_id").count().orderBy(desc("count"))
+
+# Define the window specification with no partitioning (since we want a global rank) ordered by count descending
+windowSpec = Window.orderBy(desc("count"))
+
+# Add a rank column based on check-in frequency
+ranked_business_checkin_frequency = business_checkin_frequency.withColumn("rank", rank().over(windowSpec))
+
+# Show the result
+ranked_business_checkin_frequency.show()
+
+# Optionally, save the result to a CSV file
+ranked_business_checkin_frequency.write.csv('path/to/save/ranked_business_checkin_frequencies.csv', header=True)
