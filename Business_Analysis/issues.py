@@ -1,8 +1,8 @@
 # Import necessary libraries
 from pyspark import HiveContext
-from pyspark.sql.functions import count, col, avg, countDistinct, desc, lit, sum, min, max, stddev
+from pyspark.sql.functions import count, col, avg, countDistinct, desc, lit, sum, min, max
 
-# Initialize HiveContext
+# Initialize HiveContext  (Allows interaction with Hive using Spark)
 hc = HiveContext(sc)
 
 # Load data from the 'business' table
@@ -48,7 +48,7 @@ z.show(top_merchants_avg_ratings)
 
 # 5. Identify and list the top 10 categories with the highest frequency.
 top_categories = df.groupBy('categories') \
-                   .count() \
+                   .count() \                           # Counting occurrences of each category
                    .orderBy(desc('count')) \
                    .limit(10)
 
