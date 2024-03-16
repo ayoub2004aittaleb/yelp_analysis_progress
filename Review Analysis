@@ -1,0 +1,208 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import year, col, to_date
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, IntegerType, TimestampType
+
+spark = SparkSession.builder \
+    .appName("YearlyCheckinFrequency") \
+    .master('local') \
+    .getOrCreate()
+
+# Define the schema
+review_schema = StructType([
+    StructField('review_id', StringType(), True),
+    StructField('user_id', StringType(), True),
+    StructField('business_id', StringType(), True),
+    StructField('stars', FloatType(), True),
+    StructField('useful', IntegerType(), True),
+    StructField('funny', IntegerType(), True),
+    StructField('text', StringType(), True),
+    StructField('date', TimestampType(), True)
+])
+
+# Read JSON data with the defined schema
+df = spark.read.json('dataset/yelp_academic_dataset_review.json', schema=review_schema)
+# Create a SparkSession
+spark = SparkSession.builder \
+    .appName("YearlyReviewCount") \
+    .master('local') \
+    .getOrCreate()
+
+# Read JSON data
+df = spark.read.json('dataset/yelp_academic_dataset_review.json')
+
+# Extract year from the date field
+df_with_year = df.withColumn("year", year(df["date"]))
+
+# Group by year and count the number of reviews
+yearly_review_count = df_with_year.groupBy("year").count().orderBy("year")
+
+# Show the result
+yearly_review_count.show()
+
+# ------------------------------------------------------------------
+from pyspark.sql.functions import to_date, year, col, sum as _sum
+
+# Initialize SparkSession with Hive support (if you're loading data from Hive)
+spark = SparkSession.builder \
+    .appName("ReviewSummary") \
+    .enableHiveSupport() \
+    .getOrCreate()
+
+# Assuming df is your DataFrame loaded from a Hive table or other source
+df = df.withColumn('year', year(col('date')))
+
+# Ensure we're working with non-null years
+df = df.filter(col('year').isNotNull())
+
+# Group by year and summarize counts for helpful, funny, and cool reviews
+yearly_summary = df.groupBy('year') \
+    .agg(
+        _sum('useful').alias('total_helpful'),
+        _sum('funny').alias('total_funny'),
+        _sum('cool').alias('total_cool')
+    ) \
+    .orderBy('year')
+
+# Show the yearly summary
+yearly_summary.show()
+
+# Optional: Stop the SparkSession
+spark.stop()
+# ------------------------------------------------------------------
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import year, col, count
+from pyspark.sql.window import Window
+from pyspark.sql.functions import rank
+
+# Create a SparkSession
+spark = SparkSession.builder \
+    .appName("UserReviewRanking") \
+    .master('local') \
+    .getOrCreate()
+
+# Read JSON data
+df = spark.read.json('dataset/yelp_academic_dataset_review.json')
+
+# Extract year from the date field and create a year column
+df_with_year = df.withColumn("year", year(col("date")))
+
+# Group by user_id and year, and count the number of reviews
+user_yearly_review_count = df_with_year.groupBy("user_id", "year").agg(count("review_id").alias("total_reviews"))
+
+# Define the window specification, partitioned by year and ordered by the total reviews in descending order
+windowSpec = Window.partitionBy("year").orderBy(col("total_reviews").desc())
+
+# Apply the window specification to create a rank column
+user_review_rank = user_yearly_review_count.withColumn("rank", rank().over(windowSpec))
+
+# Show the result
+user_review_rank.show()
+
+# --------------------------------------------------------------------------------------
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, explode, lower, regexp_replace
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import Tokenizer, StopWordsRemover
+from pyspark.sql.functions import count
+
+# Create a SparkSession
+spark = SparkSession.builder \
+    .appName("CommonWordsInReviews") \
+    .master('local') \
+    .getOrCreate()
+
+# Read JSON data
+df = spark.read.json('dataset/yelp_academic_dataset_review.json')
+
+# Define pipeline stages
+regex_replace = regexp_replace(col("text"), "[^a-zA-Z\\s]", "")
+tokenizer = Tokenizer(inputCol="text", outputCol="words")
+stop_words_remover = StopWordsRemover(inputCol="words", outputCol="filtered_words")
+
+# Create a pipeline
+pipeline = Pipeline(stages=[tokenizer, stop_words_remover])
+
+# Apply transformations
+pipeline_model = pipeline.fit(df)
+df_transformed = pipeline_model.transform(df)
+
+# Explode the words into separate rows
+df_exploded = df_transformed.select(explode("filtered_words").alias("word"))
+
+# Count the occurrences of each word
+word_counts = df_exploded.groupBy("word").agg(count("word").alias("count"))
+
+# Sort by count in descending order and take the top 20 words
+top_words = word_counts.orderBy(col("count").desc()).limit(20)
+
+# Show the result
+top_words.show()
+
+# -----------------------------------------------------------------------
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, lower, regexp_replace, udf
+from pyspark.sql.types import ArrayType, StringType
+from pyspark.ml.feature import Tokenizer
+import nltk
+from nltk import pos_tag
+from nltk.tokenize import word_tokenize
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+
+# Download necessary NLTK data
+nltk.download('punkt')
+nltk.download('averaged_perceptron_tagger')
+
+# Initialize SparkSession
+spark = SparkSession.builder.appName("WordCloudAnalysis").getOrCreate()
+
+# Example DataFrame loading
+# Replace "path/to/your/data.json" with the actual path to your dataset
+df = spark.read.json("dataset/yelp_academic_dataset_review.json")
+
+# Ensure the 'text' column exists
+df.printSchema()
+
+# Clean the text: remove punctuation and convert to lowercase
+df_clean = df.withColumn("clean_text", lower(regexp_replace(col("text"), "[^a-zA-Z\\s]", "")))
+
+# Tokenize text
+tokenizer = Tokenizer(inputCol="clean_text", outputCol="words")
+df_tokens = tokenizer.transform(df_clean)
+
+# Define a UDF for POS tagging
+def nltk_pos_tag(words):
+    return pos_tag(words)
+
+pos_tag_udf = udf(nltk_pos_tag, ArrayType(StringType()))
+
+# Tokenize and POS-tag the text for word cloud generation
+df_pos = df_tokens.withColumn("pos_tags", pos_tag_udf(col("words")))
+
+# Define a UDF to filter words based on POS tags (e.g., keeping only nouns)
+def filter_nouns(tagged_words):
+    return [word for word, tag in tagged_words if tag.startswith('NN')]
+
+filter_nouns_udf = udf(filter_nouns, ArrayType(StringType()))
+
+# Apply the UDF to filter words
+df_filtered = df_pos.withColumn("filtered_words", filter_nouns_udf("pos_tags"))
+
+# Collect the filtered words into a list for word cloud generation
+words_list = df_filtered.select("filtered_words").rdd.flatMap(lambda x: x).collect()
+flat_list = [item for sublist in words_list for item in sublist]
+
+# Generate the word cloud
+wordcloud = WordCloud(background_color='white').generate(' '.join(flat_list))
+
+# Display the word cloud using matplotlib
+plt.figure(figsize=(10, 5))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.show()
+
+# Stop the SparkSession
+spark.stop()
